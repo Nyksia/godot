@@ -2236,13 +2236,34 @@ EditorPropertyRID::EditorPropertyRID() {
 
 ////////////// RESOURCE //////////////////////
 
-void EditorPropertyResource::_resource_selected(const RES &p_resource) {
-	if (use_sub_inspector) {
-		bool unfold = !get_edited_object()->editor_is_section_unfolded(get_edited_property());
-		get_edited_object()->editor_set_section_unfold(get_edited_property(), unfold);
-		update_property();
-	} else {
-		emit_signal("resource_selected", get_edited_property(), p_resource);
+void EditorPropertyResource::_file_selected(const String &p_path) {
+	RES res = ResourceLoader::load(p_path);
+
+	ERR_FAIL_COND_MSG(res.is_null(), "Cannot load resource from path '" + p_path + "'.");
+
+	List<PropertyInfo> prop_list;
+	get_edited_object()->get_property_list(&prop_list);
+	String property_types;
+
+	for (List<PropertyInfo>::Element *E = prop_list.front(); E; E = E->next()) {
+		if (E->get().name == get_edited_property() && (E->get().hint & PROPERTY_HINT_RESOURCE_TYPE)) {
+			property_types = E->get().hint_string;
+		}
+	}
+	if (!property_types.empty()) {
+		bool any_type_matches = false;
+		const Vector<String> split_property_types = property_types.split(",");
+		StringName res_class = _get_file_script_name_or_default(res);
+		for (int i = 0; i < split_property_types.size(); ++i) {
+			if (EditorNode::get_editor_data().class_equals_or_inherits(res_class, split_property_types[i])) {
+				any_type_matches = true;
+				break;
+			}
+		}
+
+		if (!any_type_matches) {
+			EditorNode::get_singleton()->show_warning(vformat(TTR("The selected resource (%s) does not match any type expected for this property (%s)."), res->get_class(), property_types));
+		}
 	}
 }
 
@@ -2252,6 +2273,41 @@ void EditorPropertyResource::_resource_changed(const RES &p_resource) {
 	if (get_edited_object() && s.is_valid()) {
 		s->call("set_instance_base_type", get_edited_object()->get_class());
 	}
+void EditorPropertyResource::_menu_option(int p_which) {
+	//	scene_tree->popup_centered_ratio();
+	switch (p_which) {
+		case OBJ_MENU_LOAD: {
+			if (!file) {
+				file = memnew(EditorFileDialog);
+				file->connect("file_selected", this, "_file_selected");
+				add_child(file);
+			}
+			file->set_mode(EditorFileDialog::MODE_OPEN_FILE);
+			String type = base_type;
+			if (ScriptServer::is_global_class(type)) {
+				type = ScriptServer::get_global_class_native_base(type);
+			}
+
+			List<String> extensions;
+			for (int i = 0; i < type.get_slice_count(","); i++) {
+				ResourceLoader::get_recognized_extensions_for_type(type.get_slice(",", i), &extensions);
+			}
+
+			Set<String> valid_extensions;
+			for (List<String>::Element *E = extensions.front(); E; E = E->next()) {
+				valid_extensions.insert(E->get());
+			}
+
+			file->clear_filters();
+			for (Set<String>::Element *E = valid_extensions.front(); E; E = E->next()) {
+				file->add_filter("*." + E->get() + " ; " + E->get().to_upper());
+			}
+
+			file->popup_centered_ratio();
+		} break;
+
+		case OBJ_MENU_EDIT: {
+			RES res = get_edited_object()->get(get_edited_property());
 
 	// Prevent the creation of invalid ViewportTextures when possible.
 	Ref<ViewportTexture> vpt = p_resource;
@@ -2269,6 +2325,135 @@ void EditorPropertyResource::_resource_changed(const RES &p_resource) {
 			emit_changed(get_edited_property(), RES());
 			update_property();
 			return;
+
+		if (p_preview.is_valid()) {
+			preview->set_margin(MARGIN_LEFT, assign->get_icon()->get_width() + assign->get_stylebox("normal")->get_default_margin(MARGIN_LEFT) + get_constant("hseparation", "Button"));
+			if (type == "GradientTexture") {
+				preview->set_stretch_mode(TextureRect::STRETCH_SCALE);
+				assign->set_custom_minimum_size(Size2(1, 1));
+			} else {
+				preview->set_stretch_mode(TextureRect::STRETCH_KEEP_ASPECT_CENTERED);
+				int thumbnail_size = EditorSettings::get_singleton()->get("filesystem/file_dialog/thumbnail_size");
+				thumbnail_size *= EDSCALE;
+				assign->set_custom_minimum_size(Size2(1, thumbnail_size));
+			}
+			preview->set_texture(p_preview);
+			assign->set_text("");
+		}
+	}
+}
+
+void EditorPropertyResource::_update_menu_items() {
+	//////////////////// UPDATE MENU //////////////////////////
+	RES res = get_edited_object()->get(get_edited_property());
+
+	menu->clear();
+
+	if (get_edited_property() == "script" && base_type == "Script" && Object::cast_to<Node>(get_edited_object())) {
+		menu->add_icon_item(get_icon("ScriptCreate", "EditorIcons"), TTR("New Script"), OBJ_MENU_NEW_SCRIPT);
+		menu->add_icon_item(get_icon("ScriptExtend", "EditorIcons"), TTR("Extend Script"), OBJ_MENU_EXTEND_SCRIPT);
+		menu->add_separator();
+	} else if (base_type != "") {
+		int idx = 0;
+
+		Vector<EditorData::CustomType> custom_resources;
+
+		if (EditorNode::get_editor_data().get_custom_types().has("Resource")) {
+			custom_resources = EditorNode::get_editor_data().get_custom_types()["Resource"];
+		}
+
+		for (int i = 0; i < base_type.get_slice_count(","); i++) {
+			String base = base_type.get_slice(",", i);
+
+			Set<String> valid_inheritors;
+			valid_inheritors.insert(base);
+			List<StringName> inheritors;
+			ClassDB::get_inheriters_from_class(base.strip_edges(), &inheritors);
+
+			for (int j = 0; j < custom_resources.size(); j++) {
+				inheritors.push_back(custom_resources[j].name);
+			}
+
+			List<StringName>::Element *E = inheritors.front();
+			while (E) {
+				valid_inheritors.insert(E->get());
+				E = E->next();
+			}
+
+			List<StringName> global_classes;
+			ScriptServer::get_global_class_list(&global_classes);
+			E = global_classes.front();
+			while (E) {
+				if (EditorNode::get_editor_data().script_class_is_parent(E->get(), base_type)) {
+					valid_inheritors.insert(E->get());
+				}
+				E = E->next();
+			}
+
+			for (Set<String>::Element *F = valid_inheritors.front(); F; F = F->next()) {
+				const String &t = F->get();
+
+				bool is_custom_resource = false;
+				Ref<Texture> icon;
+				if (!custom_resources.empty()) {
+					for (int j = 0; j < custom_resources.size(); j++) {
+						if (custom_resources[j].name == t) {
+							is_custom_resource = true;
+							if (custom_resources[j].icon.is_valid()) {
+								icon = custom_resources[j].icon;
+							}
+							break;
+						}
+					}
+				}
+
+				if (!is_custom_resource && !(ScriptServer::is_global_class(t) || ClassDB::can_instance(t))) {
+					continue;
+				}
+
+				inheritors_array.push_back(t);
+
+				if (!icon.is_valid())
+					icon = EditorNode::get_singleton()->get_class_icon(t, "Object");
+
+				int id = TYPE_BASE_ID + idx;
+				menu->add_icon_item(icon, vformat(TTR("New %s"), t), id);
+
+				idx++;
+			}
+		}
+
+		if (menu->get_item_count()) {
+			menu->add_separator();
+		}
+	}
+
+	menu->add_icon_item(get_icon("Load", "EditorIcons"), TTR("Load"), OBJ_MENU_LOAD);
+
+	if (!res.is_null()) {
+		menu->add_icon_item(get_icon("Edit", "EditorIcons"), TTR("Edit"), OBJ_MENU_EDIT);
+		menu->add_icon_item(get_icon("Clear", "EditorIcons"), TTR("Clear"), OBJ_MENU_CLEAR);
+		menu->add_icon_item(get_icon("Duplicate", "EditorIcons"), TTR("Make Unique"), OBJ_MENU_MAKE_UNIQUE);
+		menu->add_icon_item(get_icon("Save", "EditorIcons"), TTR("Save"), OBJ_MENU_SAVE);
+		RES r = res;
+		if (r.is_valid() && r->get_path().is_resource_file()) {
+			menu->add_separator();
+			menu->add_item(TTR("Show in FileSystem"), OBJ_MENU_SHOW_IN_FILE_SYSTEM);
+		}
+	}
+
+	RES cb = EditorSettings::get_singleton()->get_resource_clipboard();
+	bool paste_valid = false;
+	if (cb.is_valid()) {
+		if (base_type == "") {
+			paste_valid = true;
+		} else {
+			for (int i = 0; i < base_type.get_slice_count(","); i++) {
+				if (ClassDB::is_parent_class(cb->get_class(), base_type.get_slice(",", i))) {
+					paste_valid = true;
+					break;
+				}
+			}
 		}
 	}
 
@@ -2498,6 +2683,36 @@ void EditorPropertyResource::update_property() {
 					EditorNode::get_singleton()->hide_top_editors();
 					opened_editor = false;
 				}
+				_update_property_bg();
+			}
+		}
+	}
+
+	preview->set_texture(Ref<Texture>());
+	if (res == RES()) {
+		assign->set_icon(Ref<Texture>());
+		assign->set_text(TTR("[empty]"));
+		assign->set_custom_minimum_size(Size2(1, 1));
+	} else {
+		assign->set_icon(EditorNode::get_singleton()->get_object_icon(res.operator->(), "Object"));
+
+		if (res->get_name() != String()) {
+			assign->set_text(res->get_name());
+		} else if (res->get_path().is_resource_file()) {
+			assign->set_text(res->get_path().get_file());
+			assign->set_tooltip(res->get_path());
+		} else {
+			assign->set_text(_get_file_script_name_or_default(res));
+		}
+
+		if (res->get_path().is_resource_file()) {
+			assign->set_tooltip(res->get_path());
+		}
+
+		//preview will override the above, so called at the end
+		EditorResourcePreview::get_singleton()->queue_edited_resource_preview(res, this, "_resource_preview", res->get_instance_id());
+	}
+}
 
 				_update_property_bg();
 			}
@@ -2521,6 +2736,70 @@ void EditorPropertyResource::expand_all_folding() {
 
 void EditorPropertyResource::set_use_sub_inspector(bool p_enable) {
 	use_sub_inspector = p_enable;
+
+void EditorPropertyResource::_button_draw() {
+	if (dropping) {
+		Color color = get_color("accent_color", "Editor");
+		assign->draw_rect(Rect2(Point2(), assign->get_size()), color, false);
+	}
+}
+
+Variant EditorPropertyResource::get_drag_data_fw(const Point2 &p_point, Control *p_from) {
+	RES res = get_edited_object()->get(get_edited_property());
+	if (res.is_valid()) {
+		return EditorNode::get_singleton()->drag_resource(res, p_from);
+	}
+
+	return Variant();
+}
+
+bool EditorPropertyResource::_is_drop_valid(const Dictionary &p_drag_data) const {
+	String allowed_type = base_type;
+
+	Dictionary drag_data = p_drag_data;
+
+	Ref<Resource> res;
+	if (drag_data.has("type") && String(drag_data["type"]) == "script_list_element") {
+		ScriptEditorBase *se = Object::cast_to<ScriptEditorBase>(drag_data["script_list_element"]);
+		res = se->get_edited_resource();
+	} else if (drag_data.has("type") && String(drag_data["type"]) == "resource") {
+		res = drag_data["resource"];
+	}
+
+	if (res.is_valid()) {
+		for (int i = 0; i < allowed_type.get_slice_count(","); i++) {
+			String at = allowed_type.get_slice(",", i).strip_edges();
+			if (res.is_valid() && EditorNode::get_editor_data().class_equals_or_inherits(_get_file_script_name_or_default(res), at)) {
+				return true;
+			}
+		}
+	}
+
+	if (drag_data.has("type") && String(drag_data["type"]) == "files") {
+		Vector<String> files = drag_data["files"];
+
+		if (files.size() == 1) {
+			String file = files[0];
+			String ftype = EditorFileSystem::get_singleton()->get_file_type(file);
+
+			if (ftype != "") {
+				ftype = _get_file_script_name_or_default(ResourceLoader::load(file));
+
+				for (int i = 0; i < allowed_type.get_slice_count(","); i++) {
+					String at = allowed_type.get_slice(",", i).strip_edges();
+					if (EditorNode::get_editor_data().class_equals_or_inherits(ftype, at)) {
+						return true;
+					}
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
+bool EditorPropertyResource::can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const {
+	return _is_drop_valid(p_data);
 }
 
 void EditorPropertyResource::_notification(int p_what) {
@@ -2532,6 +2811,24 @@ void EditorPropertyResource::_notification(int p_what) {
 			}
 		} break;
 	}
+}
+
+void EditorPropertyResource::set_use_sub_inspector(bool p_enable) {
+	use_sub_inspector = p_enable;
+}
+
+StringName EditorPropertyResource::_get_file_script_name_or_default(const RES &p_resource) const {
+	Ref<Script> rscript = p_resource->get_script();
+	if (rscript.is_valid()) {
+		String rscript_path = rscript->get_path();
+		int script_index;
+		EditorFileSystemDirectory *fsdir = EditorFileSystem::get_singleton()->find_file(rscript_path, &script_index);
+		ERR_FAIL_COND_V_MSG(!fsdir, p_resource->get_class(), "Failed to find filesystem directory for the resource's script at: " + rscript_path);
+		String file_script_name = fsdir->get_file_script_class_name(script_index);
+		if (!file_script_name.empty())
+			return file_script_name;
+	}
+	return p_resource->get_class();
 }
 
 void EditorPropertyResource::_bind_methods() {
@@ -2955,6 +3252,7 @@ bool EditorInspectorDefaultPlugin::parse_property(Object *p_object, Variant::Typ
 		case Variant::OBJECT: {
 			EditorPropertyResource *editor = memnew(EditorPropertyResource);
 			editor->setup(p_object, p_path, p_hint == PROPERTY_HINT_RESOURCE_TYPE ? p_hint_text : "Resource");
+			EditorData &ed = EditorNode::get_editor_data();
 
 			if (p_hint == PROPERTY_HINT_RESOURCE_TYPE) {
 				String open_in_new = EDITOR_GET("interface/inspector/resources_to_open_in_new_inspector");
@@ -2962,7 +3260,9 @@ bool EditorInspectorDefaultPlugin::parse_property(Object *p_object, Variant::Typ
 					String type = open_in_new.get_slicec(',', i).strip_edges();
 					for (int j = 0; j < p_hint_text.get_slice_count(","); j++) {
 						String inherits = p_hint_text.get_slicec(',', j);
-						if (ClassDB::is_parent_class(inherits, type)) {
+
+						//if (!ScriptServer::is_global_class(inherits) && ClassDB::is_parent_class(inherits, type)) {
+						if (ed.class_equals_or_inherits(inherits, type)) {
 							editor->set_use_sub_inspector(false);
 						}
 					}
