@@ -39,9 +39,11 @@
 #include "core/project_settings.h"
 
 #ifdef TOOLS_ENABLED
+#include "core/os/keyboard.h"
 #include "editor/bindings_generator.h"
 #include "editor/csharp_project.h"
 #include "editor/editor_node.h"
+#include "editor/editor_settings.h"
 #include "editor/node_dock.h"
 #endif
 
@@ -1219,6 +1221,7 @@ void CSharpLanguage::_editor_init_callback() {
 
 	// Enable it as a plugin
 	EditorNode::add_editor_plugin(godotsharp_editor);
+	ED_SHORTCUT("mono/build_solution", TTR("Build Solution"), KEY_MASK_ALT | KEY_B);
 	godotsharp_editor->enable_plugin();
 
 	get_singleton()->godotsharp_editor = godotsharp_editor;
@@ -1669,6 +1672,28 @@ Variant::Type CSharpInstance::get_property_type(const StringName &p_name, bool *
 		*r_is_valid = false;
 
 	return Variant::NIL;
+}
+
+void CSharpInstance::get_method_list(List<MethodInfo> *p_list) const {
+	if (!script->is_valid() || !script->script_class)
+		return;
+
+	GD_MONO_SCOPE_THREAD_ATTACH;
+
+	// TODO: We're filtering out constructors but there may be other methods unsuitable for explicit calls.
+	GDMonoClass *top = script->script_class;
+
+	while (top && top != script->native) {
+		const Vector<GDMonoMethod *> &methods = top->get_all_methods();
+		for (int i = 0; i < methods.size(); ++i) {
+			MethodInfo minfo = methods[i]->get_method_info();
+			if (minfo.name != CACHED_STRING_NAME(dotctor)) {
+				p_list->push_back(minfo);
+			}
+		}
+
+		top = top->get_parent_class();
+	}
 }
 
 bool CSharpInstance::has_method(const StringName &p_method) const {
@@ -2703,12 +2728,24 @@ int CSharpScript::_try_get_member_export_hint(IMonoClassMember *p_member, Manage
 
 		ERR_FAIL_COND_V_MSG(elem_variant_type == Variant::NIL, -1, "Unknown array element type.");
 
-		int hint_res = _try_get_member_export_hint(p_member, elem_type, elem_variant_type, p_given_hint, p_given_hint_string, /* allow_generics: */ false, elem_hint, elem_hint_string);
+		bool preset_hint = false;
+		if (elem_variant_type == Variant::STRING) {
+			MonoObject *attr = p_member->get_attribute(CACHED_CLASS(ExportAttribute));
+			if (PropertyHint(CACHED_FIELD(ExportAttribute, hint)->get_int_value(attr)) == PROPERTY_HINT_ENUM) {
+				r_hint_string = itos(elem_variant_type) + "/" + itos(PROPERTY_HINT_ENUM) + ":" + CACHED_FIELD(ExportAttribute, hintString)->get_string_value(attr);
+				preset_hint = true;
+			}
+		}
 
-		ERR_FAIL_COND_V_MSG(hint_res == -1, -1, "Error while trying to determine information about the array element type.");
+		if (!preset_hint) {
+			int hint_res = _try_get_member_export_hint(p_member, elem_type, elem_variant_type, /* allow_generics: */ false, elem_hint, elem_hint_string);
 
-		// Format: type/hint:hint_string
-		r_hint_string = itos(elem_variant_type) + "/" + itos(elem_hint) + ":" + elem_hint_string;
+			ERR_FAIL_COND_V_MSG(hint_res == -1, -1, "Error while trying to determine information about the array element type.");
+
+			// Format: type/hint:hint_string
+			r_hint_string = itos(elem_variant_type) + "/" + itos(elem_hint) + ":" + elem_hint_string;
+		}
+
 		r_hint = PROPERTY_HINT_TYPE_STRING;
 
 	} else if (p_allow_generics && p_variant_type == Variant::DICTIONARY) {
@@ -3087,10 +3124,19 @@ void CSharpScript::get_script_method_list(List<MethodInfo> *p_list) const {
 
 	GD_MONO_SCOPE_THREAD_ATTACH;
 
-	// TODO: Filter out things unsuitable for explicit calls, like constructors.
-	const Vector<GDMonoMethod *> &methods = script_class->get_all_methods();
-	for (int i = 0; i < methods.size(); ++i) {
-		p_list->push_back(methods[i]->get_method_info());
+	// TODO: We're filtering out constructors but there may be other methods unsuitable for explicit calls.
+	GDMonoClass *top = script_class;
+
+	while (top && top != native) {
+		const Vector<GDMonoMethod *> &methods = top->get_all_methods();
+		for (int i = 0; i < methods.size(); ++i) {
+			MethodInfo minfo = methods[i]->get_method_info();
+			if (minfo.name != CACHED_STRING_NAME(dotctor)) {
+				p_list->push_back(methods[i]->get_method_info());
+			}
+		}
+
+		top = top->get_parent_class();
 	}
 }
 

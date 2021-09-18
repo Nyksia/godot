@@ -1612,6 +1612,8 @@ void SpatialEditorViewport::_sinput(const Ref<InputEvent> &p_event) {
 							motion = Vector3(scale, scale, scale);
 						}
 
+						motion /= click.distance_to(_edit.center);
+
 						List<Node *> &selection = editor_selection->get_selected_node_list();
 
 						// Disable local transformation for TRANSFORM_VIEW
@@ -6243,6 +6245,7 @@ void SpatialEditor::_register_all_gizmos() {
 	add_gizmo_plugin(Ref<CameraSpatialGizmoPlugin>(memnew(CameraSpatialGizmoPlugin)));
 	add_gizmo_plugin(Ref<LightSpatialGizmoPlugin>(memnew(LightSpatialGizmoPlugin)));
 	add_gizmo_plugin(Ref<AudioStreamPlayer3DSpatialGizmoPlugin>(memnew(AudioStreamPlayer3DSpatialGizmoPlugin)));
+	add_gizmo_plugin(Ref<ListenerSpatialGizmoPlugin>(memnew(ListenerSpatialGizmoPlugin)));
 	add_gizmo_plugin(Ref<MeshInstanceSpatialGizmoPlugin>(memnew(MeshInstanceSpatialGizmoPlugin)));
 	add_gizmo_plugin(Ref<SoftBodySpatialGizmoPlugin>(memnew(SoftBodySpatialGizmoPlugin)));
 	add_gizmo_plugin(Ref<Sprite3DSpatialGizmoPlugin>(memnew(Sprite3DSpatialGizmoPlugin)));
