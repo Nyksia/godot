@@ -170,6 +170,7 @@ private:
 		RUN_LIVE_DEBUG,
 		RUN_DEBUG_COLLISONS,
 		RUN_DEBUG_NAVIGATION,
+		RUN_DEBUG_SHADER_FALLBACKS,
 		RUN_DEPLOY_REMOTE_DEBUG,
 		RUN_RELOAD_SCRIPTS,
 		RUN_VCS_SETTINGS,
@@ -311,6 +312,7 @@ private:
 	ConfirmationDialog *pick_main_scene;
 	Button *select_current_scene_button;
 	AcceptDialog *accept;
+	AcceptDialog *save_accept;
 	EditorAbout *about;
 	AcceptDialog *warning;
 
@@ -400,7 +402,7 @@ private:
 
 	bool waiting_for_sources_changed;
 
-	uint32_t update_spinner_step_msec;
+	uint64_t update_spinner_step_msec;
 	uint64_t update_spinner_step_frame;
 	int update_spinner_step;
 
@@ -802,6 +804,7 @@ public:
 	Ref<Texture> get_class_icon(const String &p_class, const String &p_fallback = "Object") const;
 
 	void show_accept(const String &p_text, const String &p_title);
+	void show_save_accept(const String &p_text, const String &p_title);
 	void show_warning(const String &p_text, const String &p_title = TTR("Warning!"));
 
 	void _copy_warning(const String &p_str);

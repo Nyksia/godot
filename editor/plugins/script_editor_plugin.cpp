@@ -156,10 +156,7 @@ void ScriptEditorQuickOpen::_text_changed(const String &p_newtext) {
 void ScriptEditorQuickOpen::_sbox_input(const Ref<InputEvent> &p_ie) {
 	Ref<InputEventKey> k = p_ie;
 
-	if (k.is_valid() && (k->get_scancode() == KEY_UP ||
-								k->get_scancode() == KEY_DOWN ||
-								k->get_scancode() == KEY_PAGEUP ||
-								k->get_scancode() == KEY_PAGEDOWN)) {
+	if (k.is_valid() && (k->get_scancode() == KEY_UP || k->get_scancode() == KEY_DOWN || k->get_scancode() == KEY_PAGEUP || k->get_scancode() == KEY_PAGEDOWN)) {
 		search_options->call("_gui_input", k);
 		search_box->accept_event();
 	}
@@ -662,7 +659,7 @@ void ScriptEditor::_queue_close_tabs() {
 			// Maybe there are unsaved changes.
 			if (se->is_unsaved()) {
 				_ask_close_current_unsaved_tab(se);
-				erase_tab_confirm->connect(SceneStringNames::get_singleton()->visibility_changed, this, "_queue_close_tabs", varray(), CONNECT_ONESHOT);
+				erase_tab_confirm->connect(SceneStringNames::get_singleton()->visibility_changed, this, "_queue_close_tabs", varray(), CONNECT_ONESHOT | CONNECT_DEFERRED);
 				break;
 			}
 		}
@@ -2543,6 +2540,27 @@ void ScriptEditor::drop_data_fw(const Point2 &p_point, const Variant &p_data, Co
 	}
 }
 
+void ScriptEditor::_input(const Ref<InputEvent> &p_event) {
+	// This feature can be disabled to avoid interfering with other uses of the additional
+	// mouse buttons, such as push-to-talk in a VoIP program.
+	if (EDITOR_GET("text_editor/navigation/mouse_extra_buttons_navigate_history")) {
+		const Ref<InputEventMouseButton> mb = p_event;
+
+		// Navigate the script history using additional mouse buttons present on some mice.
+		// This must be hardcoded as the editor shortcuts dialog doesn't allow assigning
+		// more than one shortcut per action.
+		if (mb.is_valid() && mb->is_pressed() && is_visible_in_tree() && !get_viewport()->gui_has_modal_stack()) {
+			if (mb->get_button_index() == BUTTON_XBUTTON1) {
+				_history_back();
+			}
+
+			if (mb->get_button_index() == BUTTON_XBUTTON2) {
+				_history_forward();
+			}
+		}
+	}
+}
+
 void ScriptEditor::_unhandled_input(const Ref<InputEvent> &p_event) {
 	ERR_FAIL_COND(p_event.is_null());
 
@@ -3082,6 +3100,7 @@ void ScriptEditor::_bind_methods() {
 	ClassDB::bind_method("_history_forward", &ScriptEditor::_history_forward);
 	ClassDB::bind_method("_history_back", &ScriptEditor::_history_back);
 	ClassDB::bind_method("_live_auto_reload_running_scripts", &ScriptEditor::_live_auto_reload_running_scripts);
+	ClassDB::bind_method("_input", &ScriptEditor::_input);
 	ClassDB::bind_method("_unhandled_input", &ScriptEditor::_unhandled_input);
 	ClassDB::bind_method("_script_list_gui_input", &ScriptEditor::_script_list_gui_input);
 	ClassDB::bind_method("_toggle_members_overview_alpha_sort", &ScriptEditor::_toggle_members_overview_alpha_sort);
@@ -3211,8 +3230,10 @@ ScriptEditor::ScriptEditor(EditorNode *p_editor) {
 	ED_SHORTCUT("script_editor/window_sort", TTR("Sort"));
 	ED_SHORTCUT("script_editor/window_move_up", TTR("Move Up"), KEY_MASK_SHIFT | KEY_MASK_ALT | KEY_UP);
 	ED_SHORTCUT("script_editor/window_move_down", TTR("Move Down"), KEY_MASK_SHIFT | KEY_MASK_ALT | KEY_DOWN);
-	ED_SHORTCUT("script_editor/next_script", TTR("Next script"), KEY_MASK_CMD | KEY_MASK_SHIFT | KEY_PERIOD); // these should be KEY_GREATER and KEY_LESS but those don't work
-	ED_SHORTCUT("script_editor/prev_script", TTR("Previous script"), KEY_MASK_CMD | KEY_MASK_SHIFT | KEY_COMMA);
+	// FIXME: These should be `KEY_GREATER` and `KEY_LESS` but those don't work.
+	ED_SHORTCUT("script_editor/next_script", TTR("Next Script"), KEY_MASK_CMD | KEY_MASK_SHIFT | KEY_PERIOD);
+	ED_SHORTCUT("script_editor/prev_script", TTR("Previous Script"), KEY_MASK_CMD | KEY_MASK_SHIFT | KEY_COMMA);
+	set_process_input(true);
 	set_process_unhandled_input(true);
 
 	file_menu = memnew(MenuButton);
@@ -3390,6 +3411,8 @@ ScriptEditor::ScriptEditor(EditorNode *p_editor) {
 	script_editor = this;
 
 	Button *db = EditorNode::get_singleton()->add_bottom_panel_item(TTR("Debugger"), debugger);
+	// Add separation for the warning/error icon that is displayed later.
+	db->add_constant_override("hseparation", 6 * EDSCALE);
 	debugger->set_tool_button(db);
 
 	debugger->connect("breaked", this, "_breaked");

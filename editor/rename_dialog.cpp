@@ -30,6 +30,7 @@
 
 #include "rename_dialog.h"
 
+#include "modules/modules_enabled.gen.h" // For regex.
 #ifdef MODULE_REGEX_ENABLED
 
 #include "core/print_string.h"
@@ -632,8 +633,7 @@ void RenameDialog::reset() {
 }
 
 bool RenameDialog::_is_main_field(LineEdit *line_edit) {
-	return line_edit &&
-		   (line_edit == lne_search || line_edit == lne_replace || line_edit == lne_prefix || line_edit == lne_suffix);
+	return line_edit && (line_edit == lne_search || line_edit == lne_replace || line_edit == lne_prefix || line_edit == lne_suffix);
 }
 
 void RenameDialog::_insert_text(String text) {

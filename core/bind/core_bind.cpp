@@ -920,7 +920,7 @@ void _OS::delay_msec(int p_msec) const {
 	OS::get_singleton()->delay_usec(int64_t(p_msec) * 1000);
 }
 
-uint32_t _OS::get_ticks_msec() const {
+uint64_t _OS::get_ticks_msec() const {
 	return OS::get_singleton()->get_ticks_msec();
 }
 
@@ -1452,6 +1452,7 @@ void _OS::_bind_methods() {
 	// to avoid using values from the documentation writer's own OS instance.
 	ADD_PROPERTY_DEFAULT("clipboard", "");
 	ADD_PROPERTY_DEFAULT("current_screen", 0);
+	ADD_PROPERTY_DEFAULT("tablet_driver", "");
 	ADD_PROPERTY_DEFAULT("exit_code", 0);
 	ADD_PROPERTY_DEFAULT("vsync_enabled", true);
 	ADD_PROPERTY_DEFAULT("vsync_via_compositor", false);
@@ -2618,6 +2619,12 @@ void _Thread::_start_func(void *ud) {
 	Ref<_Thread> *tud = (Ref<_Thread> *)ud;
 	Ref<_Thread> t = *tud;
 	memdelete(tud);
+
+	Object *target_instance = ObjectDB::get_instance(t->target_instance_id);
+	if (!target_instance) {
+		ERR_FAIL_MSG(vformat("Could not call function '%s' on previously freed instance to start thread %s.", t->target_method, t->get_id()));
+	}
+
 	Variant::CallError ce;
 	const Variant *arg[1] = { &t->userdata };
 	int argc = 0;
@@ -2636,15 +2643,17 @@ void _Thread::_start_func(void *ud) {
 		// We must check if we are in case b).
 		int target_param_count = 0;
 		int target_default_arg_count = 0;
-		Ref<Script> script = t->target_instance->get_script();
+		Ref<Script> script = target_instance->get_script();
 		if (script.is_valid()) {
 			MethodInfo mi = script->get_method_info(t->target_method);
 			target_param_count = mi.arguments.size();
 			target_default_arg_count = mi.default_arguments.size();
 		} else {
-			MethodBind *method = ClassDB::get_method(t->target_instance->get_class_name(), t->target_method);
-			target_param_count = method->get_argument_count();
-			target_default_arg_count = method->get_default_argument_count();
+			MethodBind *method = ClassDB::get_method(target_instance->get_class_name(), t->target_method);
+			if (method) {
+				target_param_count = method->get_argument_count();
+				target_default_arg_count = method->get_default_argument_count();
+			}
 		}
 		if (target_param_count >= 1 && target_default_arg_count < target_param_count) {
 			argc = 1;
@@ -2653,7 +2662,7 @@ void _Thread::_start_func(void *ud) {
 
 	Thread::set_name(t->target_method);
 
-	t->ret = t->target_instance->call(t->target_method, arg, argc, ce);
+	t->ret = target_instance->call(t->target_method, arg, argc, ce);
 	if (ce.error != Variant::CallError::CALL_OK) {
 		String reason;
 		switch (ce.error) {
@@ -2673,21 +2682,24 @@ void _Thread::_start_func(void *ud) {
 			}
 		}
 
+		t->running.clear();
 		ERR_FAIL_MSG("Could not call function '" + t->target_method.operator String() + "' to start thread " + t->get_id() + ": " + reason + ".");
 	}
+
+	t->running.clear();
 }
 
 Error _Thread::start(Object *p_instance, const StringName &p_method, const Variant &p_userdata, Priority p_priority) {
-	ERR_FAIL_COND_V_MSG(active.is_set(), ERR_ALREADY_IN_USE, "Thread already started.");
+	ERR_FAIL_COND_V_MSG(is_active(), ERR_ALREADY_IN_USE, "Thread already started.");
 	ERR_FAIL_COND_V(!p_instance, ERR_INVALID_PARAMETER);
 	ERR_FAIL_COND_V(p_method == StringName(), ERR_INVALID_PARAMETER);
 	ERR_FAIL_INDEX_V(p_priority, PRIORITY_MAX, ERR_INVALID_PARAMETER);
 
 	ret = Variant();
 	target_method = p_method;
-	target_instance = p_instance;
+	target_instance_id = p_instance->get_instance_id();
 	userdata = p_userdata;
-	active.set();
+	running.set();
 
 	Ref<_Thread> *ud = memnew(Ref<_Thread>(this));
 
@@ -2703,16 +2715,20 @@ String _Thread::get_id() const {
 }
 
 bool _Thread::is_active() const {
-	return active.is_set();
+	return thread.is_started();
 }
+
+bool _Thread::is_alive() const {
+	return running.is_set();
+}
+
 Variant _Thread::wait_to_finish() {
-	ERR_FAIL_COND_V_MSG(!active.is_set(), Variant(), "Thread must be active to wait for its completion.");
+	ERR_FAIL_COND_V_MSG(!is_active(), Variant(), "Thread must have been started to wait for its completion.");
 	thread.wait_to_finish();
 	Variant r = ret;
 	target_method = StringName();
-	target_instance = nullptr;
+	target_instance_id = ObjectID();
 	userdata = Variant();
-	active.clear();
 
 	return r;
 }
@@ -2721,6 +2737,7 @@ void _Thread::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("start", "instance", "method", "userdata", "priority"), &_Thread::start, DEFVAL(Variant()), DEFVAL(PRIORITY_NORMAL));
 	ClassDB::bind_method(D_METHOD("get_id"), &_Thread::get_id);
 	ClassDB::bind_method(D_METHOD("is_active"), &_Thread::is_active);
+	ClassDB::bind_method(D_METHOD("is_alive"), &_Thread::is_alive);
 	ClassDB::bind_method(D_METHOD("wait_to_finish"), &_Thread::wait_to_finish);
 
 	BIND_ENUM_CONSTANT(PRIORITY_LOW);
@@ -2728,11 +2745,11 @@ void _Thread::_bind_methods() {
 	BIND_ENUM_CONSTANT(PRIORITY_HIGH);
 }
 _Thread::_Thread() {
-	target_instance = nullptr;
+	target_instance_id = ObjectID();
 }
 
 _Thread::~_Thread() {
-	ERR_FAIL_COND_MSG(active.is_set(), "Reference to a Thread object was lost while the thread is still running...");
+	ERR_FAIL_COND_MSG(is_active(), "Reference to a Thread object was lost while the thread is still running...");
 }
 
 /////////////////////////////////////

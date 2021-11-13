@@ -70,18 +70,18 @@ static bool _is_hex_symbol(CharType c) {
 
 static bool _is_pair_right_symbol(CharType c) {
 	return c == '"' ||
-		   c == '\'' ||
-		   c == ')' ||
-		   c == ']' ||
-		   c == '}';
+			c == '\'' ||
+			c == ')' ||
+			c == ']' ||
+			c == '}';
 }
 
 static bool _is_pair_left_symbol(CharType c) {
 	return c == '"' ||
-		   c == '\'' ||
-		   c == '(' ||
-		   c == '[' ||
-		   c == '{';
+			c == '\'' ||
+			c == '(' ||
+			c == '[' ||
+			c == '{';
 }
 
 static bool _is_pair_symbol(CharType c) {
@@ -6801,6 +6801,7 @@ String TextEdit::get_word_at_pos(const Vector2 &p_pos) const {
 }
 
 String TextEdit::get_tooltip(const Point2 &p_pos) const {
+	Object *tooltip_obj = ObjectDB::get_instance(tooltip_obj_id);
 	if (!tooltip_obj) {
 		return Control::get_tooltip(p_pos);
 	}
@@ -6822,7 +6823,8 @@ String TextEdit::get_tooltip(const Point2 &p_pos) const {
 }
 
 void TextEdit::set_tooltip_request_func(Object *p_obj, const StringName &p_function, const Variant &p_udata) {
-	tooltip_obj = p_obj;
+	ERR_FAIL_NULL(p_obj);
+	tooltip_obj_id = p_obj->get_instance_id();
 	tooltip_func = p_function;
 	tooltip_ud = p_udata;
 }
@@ -7368,7 +7370,7 @@ TextEdit::TextEdit() {
 	completion_enabled = false;
 	completion_active = false;
 	completion_line_ofs = 0;
-	tooltip_obj = nullptr;
+	tooltip_obj_id = ObjectID();
 	line_numbers = false;
 	line_numbers_zero_padded = false;
 	line_length_guidelines = false;

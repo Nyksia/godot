@@ -44,8 +44,9 @@
 #include "core/os/os.h"
 #include "core/project_settings.h"
 #include "core/version.h"
+#include "editor/doc_translations.gen.h"
 #include "editor/editor_node.h"
-#include "editor/translations.gen.h"
+#include "editor/editor_translations.gen.h"
 #include "scene/main/node.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/viewport.h"
@@ -333,7 +334,9 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	_initial_set("interface/editor/dim_editor_on_dialog_popup", true);
 	_initial_set("interface/editor/low_processor_mode_sleep_usec", 6900); // ~144 FPS
 	hints["interface/editor/low_processor_mode_sleep_usec"] = PropertyInfo(Variant::REAL, "interface/editor/low_processor_mode_sleep_usec", PROPERTY_HINT_RANGE, "1,100000,1", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_RESTART_IF_CHANGED);
-	_initial_set("interface/editor/unfocused_low_processor_mode_sleep_usec", 100000); // 10 FPS
+	// Note: Don't go low on the editor unfocused FPS, as it seems to cause stalls in the game
+	// when using the profiler (see GH-51222).
+	_initial_set("interface/editor/unfocused_low_processor_mode_sleep_usec", 50000); // 20 FPS
 	// Allow an unfocused FPS limit as low as 1 FPS for those who really need low power usage
 	// (but don't need to preview particles or shaders while the editor is unfocused).
 	// With very low FPS limits, the editor can take a small while to become usable after being focused again,
@@ -444,6 +447,7 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	_initial_set("text_editor/navigation/show_minimap", true);
 	_initial_set("text_editor/navigation/minimap_width", 80);
 	hints["text_editor/navigation/minimap_width"] = PropertyInfo(Variant::INT, "text_editor/navigation/minimap_width", PROPERTY_HINT_RANGE, "50,250,1");
+	_initial_set("text_editor/navigation/mouse_extra_buttons_navigate_history", true);
 
 	// Appearance
 	_initial_set("text_editor/appearance/show_line_numbers", true);
@@ -544,6 +548,9 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	_initial_set("editors/3d/default_fov", 70.0);
 	_initial_set("editors/3d/default_z_near", 0.05);
 	_initial_set("editors/3d/default_z_far", 500.0);
+
+	_initial_set("editors/3d/lightmap_baking_number_of_cpu_threads", 0);
+	hints["editors/3d/lightmap_baking_number_of_cpu_threads"] = PropertyInfo(Variant::INT, "editors/3d/lightmap_baking_number_of_cpu_threads", PROPERTY_HINT_RANGE, "-2,128,1", PROPERTY_USAGE_DEFAULT);
 
 	// 3D: Navigation
 	_initial_set("editors/3d/navigation/navigation_scheme", 0);
@@ -998,11 +1005,11 @@ fail:
 void EditorSettings::setup_language() {
 	String lang = get("interface/editor/editor_language");
 	if (lang == "en") {
-		return; //none to do
+		return; // Default, nothing to do.
 	}
 
+	// Load editor translation for configured/detected locale.
 	EditorTranslationList *etl = _editor_translations;
-
 	while (etl->data) {
 		if (etl->lang == lang) {
 			Vector<uint8_t> data;
@@ -1012,7 +1019,7 @@ void EditorSettings::setup_language() {
 			FileAccessMemory *fa = memnew(FileAccessMemory);
 			fa->open_custom(data.ptr(), data.size());
 
-			Ref<Translation> tr = TranslationLoaderPO::load_translation(fa, nullptr);
+			Ref<Translation> tr = TranslationLoaderPO::load_translation(fa);
 
 			if (tr.is_valid()) {
 				tr->set_locale(etl->lang);
@@ -1022,6 +1029,29 @@ void EditorSettings::setup_language() {
 		}
 
 		etl++;
+	}
+
+	// Load class reference translation.
+	DocTranslationList *dtl = _doc_translations;
+	while (dtl->data) {
+		if (dtl->lang == lang) {
+			Vector<uint8_t> data;
+			data.resize(dtl->uncomp_size);
+			Compression::decompress(data.ptrw(), dtl->uncomp_size, dtl->data, dtl->comp_size, Compression::MODE_DEFLATE);
+
+			FileAccessMemory *fa = memnew(FileAccessMemory);
+			fa->open_custom(data.ptr(), data.size());
+
+			Ref<Translation> tr = TranslationLoaderPO::load_translation(fa);
+
+			if (tr.is_valid()) {
+				tr->set_locale(dtl->lang);
+				TranslationServer::get_singleton()->set_doc_translation(tr);
+				break;
+			}
+		}
+
+		dtl++;
 	}
 }
 

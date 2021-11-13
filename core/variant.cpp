@@ -601,6 +601,37 @@ bool Variant::can_convert_strict(Variant::Type p_type_from, Variant::Type p_type
 	return false;
 }
 
+bool Variant::deep_equal(const Variant &p_variant, int p_recursion_count) const {
+	ERR_FAIL_COND_V_MSG(p_recursion_count > MAX_RECURSION, true, "Max recursion reached");
+
+	// Containers must be handled with recursivity checks
+	switch (type) {
+		case Variant::Type::DICTIONARY: {
+			if (p_variant.type != Variant::Type::DICTIONARY) {
+				return false;
+			}
+
+			const Dictionary v1_as_d = Dictionary(*this);
+			const Dictionary v2_as_d = Dictionary(p_variant);
+
+			return v1_as_d.deep_equal(v2_as_d, p_recursion_count + 1);
+		} break;
+		case Variant::Type::ARRAY: {
+			if (p_variant.type != Variant::Type::ARRAY) {
+				return false;
+			}
+
+			const Array v1_as_a = Array(*this);
+			const Array v2_as_a = Array(p_variant);
+
+			return v1_as_a.deep_equal(v2_as_a, p_recursion_count + 1);
+		} break;
+		default: {
+			return *this == p_variant;
+		} break;
+	}
+}
+
 bool Variant::operator==(const Variant &p_variant) const {
 	if (type != p_variant.type) { //evaluation of operator== needs to be more strict
 		return false;
@@ -1323,6 +1354,19 @@ Variant::operator String() const {
 	return stringify(stack);
 }
 
+template <class T>
+String stringify_vector(const T &vec, List<const void *> &stack) {
+	String str("[");
+	for (int i = 0; i < vec.size(); i++) {
+		if (i > 0) {
+			str += ", ";
+		}
+		str = str + Variant(vec[i]).stringify(stack);
+	}
+	str += "]";
+	return str;
+}
+
 String Variant::stringify(List<const void *> &stack) const {
 	switch (type) {
 		case NIL:
@@ -1419,64 +1463,25 @@ String Variant::stringify(List<const void *> &stack) const {
 			return str;
 		} break;
 		case POOL_VECTOR2_ARRAY: {
-			PoolVector<Vector2> vec = operator PoolVector<Vector2>();
-			String str("[");
-			for (int i = 0; i < vec.size(); i++) {
-				if (i > 0) {
-					str += ", ";
-				}
-				str = str + Variant(vec[i]);
-			}
-			str += "]";
-			return str;
+			return stringify_vector(operator PoolVector<Vector2>(), stack);
 		} break;
 		case POOL_VECTOR3_ARRAY: {
-			PoolVector<Vector3> vec = operator PoolVector<Vector3>();
-			String str("[");
-			for (int i = 0; i < vec.size(); i++) {
-				if (i > 0) {
-					str += ", ";
-				}
-				str = str + Variant(vec[i]);
-			}
-			str += "]";
-			return str;
+			return stringify_vector(operator PoolVector<Vector3>(), stack);
+		} break;
+		case POOL_COLOR_ARRAY: {
+			return stringify_vector(operator PoolVector<Color>(), stack);
 		} break;
 		case POOL_STRING_ARRAY: {
-			PoolVector<String> vec = operator PoolVector<String>();
-			String str("[");
-			for (int i = 0; i < vec.size(); i++) {
-				if (i > 0) {
-					str += ", ";
-				}
-				str = str + vec[i];
-			}
-			str += "]";
-			return str;
+			return stringify_vector(operator PoolVector<String>(), stack);
+		} break;
+		case POOL_BYTE_ARRAY: {
+			return stringify_vector(operator PoolVector<uint8_t>(), stack);
 		} break;
 		case POOL_INT_ARRAY: {
-			PoolVector<int> vec = operator PoolVector<int>();
-			String str("[");
-			for (int i = 0; i < vec.size(); i++) {
-				if (i > 0) {
-					str += ", ";
-				}
-				str = str + itos(vec[i]);
-			}
-			str += "]";
-			return str;
+			return stringify_vector(operator PoolVector<int>(), stack);
 		} break;
 		case POOL_REAL_ARRAY: {
-			PoolVector<real_t> vec = operator PoolVector<real_t>();
-			String str("[");
-			for (int i = 0; i < vec.size(); i++) {
-				if (i > 0) {
-					str += ", ";
-				}
-				str = str + rtos(vec[i]);
-			}
-			str += "]";
-			return str;
+			return stringify_vector(operator PoolVector<real_t>(), stack);
 		} break;
 		case ARRAY: {
 			Array arr = operator Array();
@@ -1484,17 +1489,7 @@ String Variant::stringify(List<const void *> &stack) const {
 				return "[...]";
 			}
 			stack.push_back(arr.id());
-
-			String str("[");
-			for (int i = 0; i < arr.size(); i++) {
-				if (i) {
-					str += ", ";
-				}
-
-				str += arr[i].stringify(stack);
-			}
-
-			str += "]";
+			String str = stringify_vector(arr, stack);
 			stack.erase(arr.id());
 			return str;
 
@@ -2789,8 +2784,16 @@ bool Variant::hash_compare(const Variant &p_variant) const {
 	}
 
 	switch (type) {
+		case INT: {
+			return _data._int == p_variant._data._int;
+		} break;
+
 		case REAL: {
 			return hash_compare_scalar(_data._real, p_variant._data._real);
+		} break;
+
+		case STRING: {
+			return *reinterpret_cast<const String *>(_data._mem) == *reinterpret_cast<const String *>(p_variant._data._mem);
 		} break;
 
 		case VECTOR2: {
@@ -2805,7 +2808,7 @@ bool Variant::hash_compare(const Variant &p_variant) const {
 			const Rect2 *r = reinterpret_cast<const Rect2 *>(p_variant._data._mem);
 
 			return (hash_compare_vector2(l->position, r->position)) &&
-				   (hash_compare_vector2(l->size, r->size));
+					(hash_compare_vector2(l->size, r->size));
 		} break;
 
 		case TRANSFORM2D: {
@@ -2833,7 +2836,7 @@ bool Variant::hash_compare(const Variant &p_variant) const {
 			const Plane *r = reinterpret_cast<const Plane *>(p_variant._data._mem);
 
 			return (hash_compare_vector3(l->normal, r->normal)) &&
-				   (hash_compare_scalar(l->d, r->d));
+					(hash_compare_scalar(l->d, r->d));
 		} break;
 
 		case AABB: {

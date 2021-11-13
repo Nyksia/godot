@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<class name="ColorPicker" inherits="BoxContainer" version="3.4">
+<class name="ColorPicker" inherits="BoxContainer" version="3.5">
 	<brief_description>
 		Color picker control.
 	</brief_description>
@@ -16,7 +16,7 @@
 			<argument index="0" name="color" type="Color" />
 			<description>
 				Adds the given color to a list of color presets. The presets are displayed in the color picker and the user will be able to select them.
-				[b]Note:[/b] the presets list is only for [i]this[/i] color picker.
+				[b]Note:[/b] The presets list is only for [i]this[/i] color picker.
 			</description>
 		</method>
 		<method name="erase_preset">

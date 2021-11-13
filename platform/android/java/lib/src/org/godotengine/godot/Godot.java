@@ -407,6 +407,18 @@ public class Godot extends Fragment implements SensorEventListener, IDownloaderC
 		}
 	}
 
+	public boolean createOffscreenGL() {
+		return mView.createOffscreenGL();
+	}
+
+	public void destroyOffscreenGL() {
+		mView.destroyOffscreenGL();
+	}
+
+	public void setOffscreenGLCurrent(boolean p_current) {
+		mView.setOffscreenGLCurrent(p_current);
+	}
+
 	public void setKeepScreenOn(final boolean p_enabled) {
 		runOnUiThread(() -> {
 			if (p_enabled) {
@@ -683,8 +695,7 @@ public class Godot extends Fragment implements SensorEventListener, IDownloaderC
 
 			if (!pack_valid) {
 				Intent notifierIntent = new Intent(activity, activity.getClass());
-				notifierIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
-										Intent.FLAG_ACTIVITY_CLEAR_TOP);
+				notifierIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
 				PendingIntent pendingIntent = PendingIntent.getActivity(activity, 0,
 						notifierIntent, PendingIntent.FLAG_UPDATE_CURRENT);
