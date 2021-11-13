@@ -210,6 +210,10 @@ void ScriptServer::global_classes_clear() {
 
 void ScriptServer::add_global_class(const StringName &p_class, const StringName &p_base, const StringName &p_language, const String &p_path) {
 	ERR_FAIL_COND_MSG(p_class == p_base || (global_classes.has(p_base) && get_global_class_native_base(p_base) == p_class), "Cyclic inheritance in script class.");
+	ERR_FAIL_COND_MSG(p_class == StringName(), vformat("Attempted to register global script class at path '%s' without a class name.", p_path));
+	ERR_FAIL_COND_MSG(p_base == StringName(), vformat("Attempted to register global script class at path '%s' without a base name.", p_path));
+	ERR_FAIL_COND_MSG(p_language == StringName(), vformat("Attempted to register global script class at path '%s' without a language name.", p_path));
+	ERR_FAIL_COND_MSG(p_path.empty(), vformat("Attempted to register global script class named '%s' with an empty path.", p_class));
 	GlobalScriptClass g;
 	g.language = p_language;
 	g.path = p_path;

@@ -2743,7 +2743,7 @@ int CSharpScript::_try_get_member_export_hint(IMonoClassMember *p_member, Manage
 		}
 
 		if (!preset_hint) {
-			int hint_res = _try_get_member_export_hint(p_member, elem_type, elem_variant_type, /* allow_generics: */ false, elem_hint, elem_hint_string);
+			int hint_res = _try_get_member_export_hint(p_member, elem_type, elem_variant_type, p_given_hint, p_given_hint_string, /* allow_generics: */ false, elem_hint, elem_hint_string);
 
 			ERR_FAIL_COND_V_MSG(hint_res == -1, -1, "Error while trying to determine information about the array element type.");
 

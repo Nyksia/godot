@@ -2135,7 +2135,18 @@ void SceneTreeDock::_update_script_button() {
 		button_detach_script->hide();
 	} else if (editor_selection->get_selection().size() == 1) {
 		Node *n = editor_selection->get_selected_node_list()[0];
-		if (n->get_script().is_null()) {
+		Ref<Script> s = n->get_script();
+		if (s.is_valid()) {
+			if (ScriptServer::get_global_class_name(s->get_path()) != StringName()) {
+				button_create_script->hide();
+				button_extend_script->show();
+				button_detach_script->hide();
+			} else {
+				button_create_script->hide();
+				button_extend_script->hide();
+				button_detach_script->show();
+			}
+		} else {
 			button_create_script->show();
 			button_extend_script->hide();
 			button_detach_script->hide();

@@ -7985,11 +7985,23 @@ void GDScriptParser::_check_class_level_types(ClassNode *p_class) {
 		// Check export hint
 		if (v._export.type != Variant::NIL) {
 			DataType export_type = _type_from_property(v._export);
-			if (!_is_type_compatible(v.data_type, export_type, true)) {
-				_set_error("The export hint's type (" + export_type.to_string() + ") doesn't match the variable's type (" +
-								v.data_type.to_string() + ").",
-						v.line);
-				return;
+
+			if (export_type.kind == DataType::GDSCRIPT || export_type.kind == DataType::SCRIPT) {
+				String class_name = v._export.class_name;
+				if (ScriptServer::is_global_class(class_name)) {
+					class_name = ScriptServer::get_global_class_native_base(class_name);
+				}
+				if (!ClassDB::is_parent_class(class_name, "Resource")) {
+					_set_error(vformat("Exported script-defined type (%s) must inherit from Resource.", export_type.to_string()), v.line);
+					return;
+				}
+			}
+
+			if (v.data_type.has_type) {
+				if (!_is_type_compatible(v.data_type, export_type, true)) {
+					_set_error(vformat("The export hint's type (%s) doesn't match the variable's type (%s).", export_type.to_string(), v.data_type.to_string()), v.line);
+					return;
+				}
 			}
 		}
 
